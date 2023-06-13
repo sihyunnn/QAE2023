@@ -1,0 +1,451 @@
+---
+title: "Final project_NohSiHyun"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(RSelenium)
+library(XML)
+library(rvest)
+library(stringr)
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(httr)
+library(readxl)
+library(writexl)
+library(jsonlite)
+library(kableExtra)
+library(DT)
+
+
+rD <- rsDriver(port=4748L, chromever="113.0.5672.63")
+remDr <- rD$client
+
+## date time setting
+now <- Sys.time()
+today <- format(Sys.time(), "%Y.%m.%d.")
+
+```
+대체투자(거시정보) {data-orientation=rows}
+=====================================   
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### 상장 법인 목록(**Issued at `r now`**)
+
+```{r}
+# 페이지 반복 횟수 설정
+num_pages <- 2
+
+# 변수를 저장할 리스트 초기화
+name_list <- list()
+work_list <- list()
+use_list <- list()
+date_list <- list()
+month_list <- list()
+king_list <- list()
+
+Stack <- NULL
+
+# 반복문을 사용하여 페이지를 자동으로 넘기고 변수 추출하는 코드
+
+for (i in 1:num_pages) {
+  
+  URL <- paste("https://kind.krx.co.kr/corpgeneral/corpList.do?method=searchCorpList&pageIndex=",i,"&currentPageSize=15&comAbbrv=&beginIndex=&orderMode=3&orderStat=D&isurCd=&repIsuSrtCd=&searchCodeType=&marketType=&searchType=13&industry=&fiscalYearEnd=all&comAbbrvTmp=&location=all", sep="")
+  
+  
+  remDr$navigate(URL)
+
+  txt <- remDr$getPageSource()[[1]]
+  res <- read_html(txt)
+  
+  name_list <- list()
+  work_list <- list()
+  use_list <- list()
+  date_list <- list()
+  month_list <- list()
+  king_list <- list()
+
+  
+  # 변수 추출
+  name <- res %>%
+    html_nodes("#companysum") %>%
+    html_text()
+  name_list <- c(name_list, name)
+
+  work <- res %>%
+    html_nodes(".first+ .textOverflow") %>%
+    html_text()
+  work
+  work_list <- c(work_list, work)
+
+  use <- res %>%
+    html_nodes(".textOverflow+ .textOverflow") %>%
+    html_text()
+  use_list <- c(use_list, use)
+
+  date <- res %>%
+    html_nodes(".textOverflow+ .txc") %>%
+    html_text()
+  date_list <- c(date_list, date)
+
+  month <- res %>%
+    html_nodes(".txc:nth-child(5)") %>%
+    html_text()
+  month_list <- c(month_list, month)
+
+  king <- res %>%
+    html_nodes(".txc:nth-child(6)") %>%
+    html_text() %>%
+    str_trim()
+  king_list <- c(king_list, king)
+
+
+  data <- cbind(name_list,work_list,use_list,date_list,month_list,king_list)
+  Stack <- rbind(Stack,data)
+
+  # 2초 대기
+  Sys.sleep(2)
+  
+}
+Stack <- as.data.frame(Stack)
+names(Stack) <- c("기업명", "업종","주요제품","상장일","결산월","대표자명")
+Stack%>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+```
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Daily 금융 네이버 뉴스(**Issued at `r now`**)
+
+```{r}
+Stack <- NULL
+num_pages <- 5
+for (i in 1:num_pages) {
+  URL <- paste("https://news.naver.com/main/list.naver?mode=LS2D&sid2=259&sid1=101&mid=shm&date=20230613&page=",i,sep="")
+  res <- read_html(URL)
+  
+  date <- today
+  
+
+  # get tittle
+  pattern <- "#main_content > div.list_body.newsflash_body > ul.type06_headline > li > dl > dt:nth-child(2) > a"
+  tittle1 <- res %>% 
+    html_nodes(pattern) %>% 
+    html_text() %>%
+    str_remove("\n")%>%
+    str_trim()
+  
+  pattern <- "#main_content > div.list_body.newsflash_body > ul.type06> li > dl > dt:nth-child(2) > a"
+  tittle2 <- res %>% 
+    html_nodes(pattern) %>% 
+    html_text() %>%
+    str_remove("\n")%>%
+    str_trim()
+  
+  # get link
+  pattern <- "#main_content > div.list_body.newsflash_body > ul.type06_headline > li > dl > dt:nth-child(2) > a"
+  link1 <- res %>% 
+    html_nodes(pattern) %>% 
+    html_attr("href")
+  
+  pattern <- "#main_content > div.list_body.newsflash_body > ul.type06 > li > dl > dt:nth-child(2) > a"
+  link2 <- res %>% 
+    html_nodes(pattern) %>% 
+    html_attr("href")
+  
+  
+  final1 <- cbind(tittle1,link1) 
+  final2 <- cbind(tittle2,link2)
+  tab <- rbind(final1,final2) %>% as_tibble()
+  tab <- cbind(date,tab)%>% as_tibble()
+  names(tab) <- c("date","title", "link")
+  
+  df <- tab %>%
+    mutate(title.link = cell_spec(title, "html", link = link, color="#062872")) %>%
+    select(date, title.link)
+  
+  Stack <- rbind(Stack,df)
+  
+  rm(tittle1)
+  rm(tittle2)
+  rm(link1)
+  rm(link2)
+  
+  Sys.sleep(2)  
+}
+
+names(Stack) <- c("날짜", "링크")
+Stack %>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+### Daily 환율_국민은행 공시(**Issued at `r now`**)
+
+```{r}
+
+URL <- "https://www.kita.net/cmmrcInfo/ehgtGnrlzInfo/rltmEhgt.do"
+res <- read_html(URL)
+
+
+
+# Table
+tab <- res %>% 
+  html_table() %>% 
+  .[[1]]
+
+
+# get tittle
+pattern <- "#contents > div.boardArea > div.titArea2 > div.exInfo > span:nth-child(1)"
+date <- res %>% 
+  html_nodes(pattern) %>% 
+  html_text() %>%
+  str_remove("\n")%>%
+  str_trim()
+
+tab2 <- select(tab,1:2) %>% as_tibble()
+todaydate <- matrix(date, nrow = 28, ncol = 1)
+tab3 <- cbind(todaydate,tab2)
+
+tab3%>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+대체투자평가상품 공시내역
+====================================   
+Row
+-----------------------------------------------------------------------
+
+### 증권상품공시(수익증권)(**Issued at `r now`**)
+
+```{r}
+Stack <- NULL
+n <- 2
+for (i in 1:n){
+  URL <- paste("https://kind.krx.co.kr/disclosure/disclosurebystocktype.do?method=searchDisclosureByStockTypeBenfcertSub&currentPageSize=15&pageIndex=",i,"&orderMode=1&orderStat=D&forward=disclosurebystocktype_benfcert_sub&corpNameList=&fromDate=2023-03-11&toDate=2023-06-11&reportNm=", sep="")
+  remDr$navigate(URL)
+  
+  txt <- remDr$getPageSource()[[1]]
+  res <- read_html(txt)
+  
+  Sys.sleep(2)
+  pattern <- "#companysum"
+  name <- res %>% 
+    html_nodes(pattern) %>% 
+    html_text() %>%
+    str_trim()
+  
+  pattern <- ".txc+ .txc"
+  date <- res %>% 
+    html_nodes(pattern) %>% 
+    html_text() %>%
+    str_trim()
+  
+  pattern <- "td:nth-child(4) a"
+  title <- res %>% 
+    html_nodes(pattern) %>% 
+    html_text() %>%
+    str_trim()
+  
+  data <- cbind(name,date,title)
+  Stack <- rbind(Stack,data)
+}
+
+Stack <- as.data.frame(Stack)
+names(Stack) <- c("위탁회사명","시간","공시제목")
+
+Stack%>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+
+-----------------------------------------------------------------------
+
+### 벤처 기업 리스트(**Issued at `r now`**)
+
+```{r}
+URL <- "https://www.smes.go.kr/venturein/pbntc/searchVntrCmp"
+remDr$navigate(URL)
+
+Stack <- NULL
+n <- 3
+for (i in 1:n){
+Sys.sleep(2)
+
+txt <- remDr$getPageSource()[[1]]
+res <- read_html(txt)
+
+
+name <- res %>%
+  html_nodes(".c_tit") %>%
+  html_text()
+
+
+number <- res %>%
+  html_nodes(".ta_l:nth-child(3)") %>%
+  html_text()
+
+
+data <- cbind(name,number)
+Stack <- rbind(Stack,data)
+
+pattern <- ".active+ a" # Selector Gadget
+element <- remDr$findElement(using = "css", pattern)
+element$clickElement()
+}
+Stack <- as.data.frame(Stack)
+names(Stack) <- c("회사명","사업자번호")
+
+Stack%>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+```
+Row
+-----------------------------------------------------------------------
+
+### 주식발행내역(**Issued at `r now`**)
+
+```{r}
+now <- Sys.time()
+todaydate <- format(Sys.time(), "%Y-%m-%d")
+
+Stack <- NULL
+n <- 2
+# 반복문을 사용하여 페이지를 자동으로 넘기고 변수 추출하는 코드
+for (i in 1:n) {
+  URL <- paste("https://kind.krx.co.kr/corpgeneral/stockissuelist.do?method=searchStockIssueList&pageIndex=", i, "&currentPageSize=15&searchCodeType=&searchCorpName=&orderMode=1&orderStat=D&repIsuSrtCd=&repIsuCd=&forward=searchStockIssueList&searchMode=&bzProcsNo=&isurCd=&paxreq=&outsvcno=&marketType=all&comAbbrv=&listingType=&fromDate=2023-03-10&toDate=",todaydate, sep="")
+  remDr$navigate(URL)
+  
+  txt <- remDr$getPageSource()[[1]]
+  res <- read_html(txt)
+  
+  name_list <- list()
+  date_list <- list()
+  way_list <- list()
+  total_list <- list()
+  won_list <- list()
+  reason_list <- list()
+  
+  # 변수 추출
+  name <- res %>%
+    html_nodes("#companysum") %>%
+    html_text()
+  name_list <- c(name_list, name)
+  
+  date <- res %>%
+    html_nodes(".first+ .txc") %>%
+    html_text()
+  date_list <- c(date_list, date)
+  
+  way <- res %>%
+    html_nodes(".txc+ .txc") %>%
+    html_text()
+  way_list <- c(way_list, way)
+  
+  total <- res %>%
+    html_nodes(".txc+ .txr") %>%
+    html_text()
+  total_list <- c(total_list, total)
+  
+  won <- res %>%
+    html_nodes(".txr+ .txr") %>%
+    html_text() %>%
+    str_trim()
+  won_list <- c(won_list, won)
+  
+  reason <- res %>%
+    html_nodes(".txr~ .txr+ td") %>%
+    html_text() %>%
+    str_trim()
+  reason_list <- c(reason_list, reason)
+  data <- cbind(name_list,date_list,way_list,total_list,won_list,reason_list)
+  Stack <- rbind(Stack,data)
+  
+  # 페이지 넘기는 명령어 실행
+  pattern <- ".next"
+  element <- remDr$findElement("css", pattern)
+  element$clickElement()
+  
+  # 2초 대기
+  Sys.sleep(2)
+}
+
+Stack <- as.data.frame(Stack)
+names(Stack) <- c("회사명","상장일","상장방식","발행주식수","액면가","발행사유")
+
+Stack%>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+
+```
+
+### 거래정지(**Issued at `r now`**)
+
+```{r}
+Stack <- NULL
+n <- 2
+# 반복문을 사용하여 페이지를 자동으로 넘기고 변수 추출하는 코드
+for (i in 1:n) {
+  URL <- paste("https://kind.krx.co.kr/investwarn/adminissue.do?method=searchAdminIssueSub&currentPageSize=15&pageIndex=",i,"&orderMode=1&orderStat=D&searchMode=&searchCodeType=&searchCorpName=&forward=adminissue_sub&paxreq=&outsvcno=&marketType=&repIsuSrtCd=", sep="")
+  remDr$navigate(URL)
+  
+  txt <- remDr$getPageSource()[[1]]
+  res <- read_html(txt)
+  
+  name_list <- list()
+  date_list <- list()
+  reason_list <- list()
+  
+  # 변수 추출
+  name <- res %>%
+    html_nodes("body > section.scrarea.type-00 > table > tbody > tr> td.first") %>%
+    html_text()
+  name_list <- c(name_list, name)
+  
+  date <- res %>%
+    html_nodes(".txc") %>%
+    html_text()
+  date_list <- c(date_list, date)
+  
+  reason <- res %>%
+    html_nodes(".txc+ td") %>%
+    html_text()
+  reason_list <- c(reason_list, reason)
+  
+  data <- cbind(name_list,date_list,reason_list)
+  Stack <- rbind(Stack,data)
+
+  # 2초 대기
+  Sys.sleep(2)
+}
+
+Stack <- as.data.frame(Stack)
+names(Stack) <- c("종목명","지정일","지정사유")
+
+Stack%>% 
+  kable(format="html", escape=FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+
+```
